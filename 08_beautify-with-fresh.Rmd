@@ -2,12 +2,235 @@
 
 **Learning objectives:**
 
-- THESE ARE NICE TO HAVE BUT NOT ABSOLUTELY NECESSARY
+- Understand what {fresh} is and why it exists
+- Compare {fresh} with {Sass}, understand who each is for and when/why one might be appropriate
+- Learn how to use `create_theme()`
+- re-style {bs4dash} elements using {fresh}
+- Combine {fresh} with {Thematic} for static plots
+- Experience customising {shinydashboard}
 
-## SLIDE 1
 
-- ADD SLIDES AS SECTIONS (`##`).
-- TRY TO KEEP THEM RELATIVELY SLIDE-LIKE; THESE ARE NOTES, NOT THE BOOK ITSELF.
+## fresh as a high-level tool
+
+{fresh} is a high-level tool for styling Shiny applications. Made by creators of shinyWidgets, Esquisse ![dreamRs Github](https://github.com/dreamRs)
+
+It aims to simplify the process of applying custom themes to entire Shiny apps, or editing bootstrap themes; allowing us to control CSS styling elements.
+
+Similar to {shinythemes} but importantly different: 
+
+{shinythemes}:
+- bank of pre-built bootstrap themes with limited customisability (but great for a super quick app facelift)
+
+{fresh}:
+- From scratch theme creation + ability to customise existing themes
+
+## fresh or sass?
+
+In some ways, what {fresh} is to {shinythemes}, {sass} is to {fresh}. 
+
+{sass} 
+- Provides us with low-level ways to re-style css and avoid repetition of code, through variables, mixins, nested rules, etc.
+- Requires grounding in CSS and not always so easy to identify which variables we need to change
+- syntax slightly different to CSS, extra things for R developers to learn - the feel of sass functions is different to R functions
+
+{fresh}
+- Built on top of {sass}
+- However, with R functions for creating our themes & styles which feel more like R functions (or which abstract away a lot of things)
+
+## Interactive Exploration of Fresh
+
+![Let's cook](image/07_01_lets_cook.png)
+
+```{r}
+
+```
+
+
+## Using create_theme()
+
+As promised, {fresh} provides us with a simple-to-use function for creating our themes: 
+
+```{r, eval = FALSE}
+library(fresh)
+create_theme(
+  ...,
+  theme = c("default", "cerulean", ...),
+  output_file = NULL,
+  include_assets = FALSE
+)
+```
+
+ To `...` we pass in lists of CSS variables declared with bs_vars_* or adminlte_* functions.
+To theme we pass in the base theme to use (think back to our recent cooking acitivity)
+output_file determines whether a file is created for compiled CSS or not, otherwise returns a string
+include_assets - logical, only use if output_file is not NULL. Copies Bootstrap & Bootswatch fonts. if TRUE, output path modified to 'stylesheets', an intermediate directory where CSS file will be located.
+
+## create_theme example (from package docs)
+```{r, eval = FALSE}
+#using a temporary file but use the path you want
+tmp <- file.path(tempdir(), "custom-theme.css")
+
+# Create the new theme
+create_theme(
+  theme = "default",
+  bs_vars_color(
+    brand_primary = "#75b8d1",
+    brand_success = "#c9d175",
+    brand_info = "#758bd1",
+    brand_warning = "#d1ab75",
+    brand_danger = "#d175b8"
+  ),
+  bs_vars_navbar(
+    default_bg = "#75b8d1",
+    default_color = "#FFFFFF",
+    default_link_color = "#FFFFFF",
+    default_link_active_color = "#FFFFFF"
+  ),
+  output_file = tmp
+)
+
+# Use the file created at the path provided
+# in your Shiny app by moving it in the
+# www/ folder, then use it in UI
+
+library(shiny)
+fluidPage(
+  theme = "custom-theme.css"
+)
+
+# clean up
+unlink(tmp)
+```
+
+
+## Customising bs4Dash
+
+Building on from the {sass} example, {fresh} makes customising bs4Dash even simpler.
+
+Two key helpful functions. `bs4dash_status()` allows us to change the colours of status elements.
+
+```{r, eval = FALSE}
+bs4dash_status(
+  primary = NULL,
+  secondary = NULL,
+  success = NULL,
+  info = NULL,
+  warning = NULL,
+  danger = NULL,
+  light = NULL,
+  dark = NULL
+)
+
+?bs4dash_status()
+```
+
+Default values:
+primary	 Default: #0073b7.
+secondary	Default: #6c757d.
+success	 Default: #28a745.
+info	 Default: #17a2b8.
+warning	 Default: #ffc107.
+danger	 Default: #dc3545.
+light	 Default: #f8f9fa.
+dark	 Default: #343a40.
+
+
+## bs4dash_color
+
+```{r, eval = FALSE}
+bs4dash_color(
+  blue = NULL,
+  lightblue = NULL,
+  navy = NULL,
+  cyan = NULL,
+  teal = NULL,
+  olive = NULL,
+  green = NULL,
+  # ...
+)
+?bs4dash_color()
+```
+Defaults: 
+blue	 Default: #007bff. This color is used for primary status.
+lightblue	 Default: #3c8dbc.
+navy	 Default: #001f3f.
+cyan	Default: #17a2b8. This color is used for info status.
+teal	Default: #39cccc.
+olive	Default: #3d9970.
+green	Default: #28a745. This color is used for success status.
+lime	Default: #01ff70.
+orange	Default: #ff851b.
+yellow	Default: #ffc107. This color is used for warning status.
+fuchsia	Default: #f012be.
+purple	Default: #605ca8.
+maroon	Default: #d81b60.
+red	Default: #dc3545. This color is used for danger status.
+black	Default: #111.
+gray_x_light	Default: #d2d6de.
+gray_600	Default: #6c757d. This color is used for secondary status.
+gray_800	Default: #343a40. Color for dark skin.
+gray_900	Default: #212529. Color for text in body.
+white	Default: #ffffff.
+
+
+## Example
+
+```{r, eval = FALSE}
+library(fresh)
+custom_colors_theme <- create_theme(
+  bs4dash_color(
+    lightblue = "#136377",
+    olive = "#d8bc66",
+    lime = "#fcec0c",
+    orange = "#978d01",
+    maroon = "#58482c",
+    gray_x_light = "#d1c5c0"
+  )
+)
+
+#author's note: complex variable names like gray-x-light become gray_x_light!
+```
+
+```{r, eval = FALSE}
+ OSUICode::run_example( 
+  "fresh/bs4Dash-custom", 
+   package = "OSUICode" 
+ )
+```
+
+Super obvious tip: use Rstudio's helpful autofill/completion feature to see the full names of arguments.
+
+## Advantages of this approach over sass approach
+
+- We don’t have to specify the AdminLTE.scss location, as fresh hosts it here.
+- We don’t have to look for all colors names as they are described along the bs4dash_color function definition. We even have a description of the default values (as well as statuses in bold), depicted in Figure 8.2 below.
+
+## Building a bs4dash theme
+
+General layout...:
+```{r, eval = FALSE}
+layout_vars <- bs4dash_layout(main_bg = "#006994")
+ocean_theme <- create_theme(layout_vars)
+```
+
+Book continues like this, no value in copy/pasting all.
+
+Highlighting the colour contrast section:
+
+bs4dash_yiq() fine-tunes the contrast between a given color and its background. 
+
+```{r, eval = FALSE}
+ bs4dash_yiq(
+    contrasted_threshold = 10, 
+    text_dark = "#FFF", 
+    text_light = "#272c30"
+  )
+
+?bs4dash_yiq
+```
+
+Ran out of time, let's discuss - next section is v similar and short! Sadly could not get to the thematic section :(
+
 
 ## Meeting Videos
 

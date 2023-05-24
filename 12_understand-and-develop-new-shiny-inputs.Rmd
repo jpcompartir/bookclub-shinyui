@@ -2,13 +2,519 @@
 
 **Learning objectives:**
 
-- THESE ARE NICE TO HAVE BUT NOT ABSOLUTELY NECESSARY
+- Understand the magic behind Shiny inputs
+- Familiarise ourselves with inputBindings
+- Walk through an example of developing an inputBinding
+- Have Russ tidy everything up next week 8) 
 
-## SLIDE 1
+## Inputs 
 
-- ADD SLIDES AS SECTIONS (`##`).
-- TRY TO KEEP THEM RELATIVELY SLIDE-LIKE; THESE ARE NOTES, NOT THE BOOK ITSELF.
+Inputs allow the user to send information to the server.
 
+{shiny} ships with ~30 built in inputs, many of which will be familiar - `checkboxInput`, `textAreaInput`, `numericInput`, `selectizeInput`, etc.. these inputs allow us to do a lot.
+
+```{r, eval = FALSE}
+shiny_funcs <- lsf.str("package:shiny")
+shiny_funcs[grepl("Input", shiny_funcs)]
+```
+
+[1] "checkboxGroupInput"       "checkboxInput"           
+ [3] "dateInput"                "dateRangeInput"          
+ [5] "fileInput"                "numericInput"            
+ [7] "passwordInput"            "registerInputHandler"    
+ [9] "removeInputHandler"       "restoreInput"            
+[11] "selectInput"              "selectizeInput"          
+[13] "sliderInput"              "snapshotPreprocessInput" 
+[15] "textAreaInput"            "textInput"               
+[17] "updateCheckboxGroupInput" "updateCheckboxInput"     
+[19] "updateDateInput"          "updateDateRangeInput"    
+[21] "updateNumericInput"       "updateSelectInput"       
+[23] "updateSelectizeInput"     "updateSliderInput"       
+[25] "updateTextAreaInput"      "updateTextInput"         
+[27] "updateVarSelectInput"     "updateVarSelectizeInput" 
+[29] "varSelectInput"           "varSelectizeInput" 
+
+But what do we do when we can't find the right input in {shiny}. 
+
+First we should look at other packages of course, like {shinyWidgets} or {shinydashboard}, but what happens when we can't find the right input anywhere?
+
+If you didn't answer 'spend months learning HTML, CSS and Javascript to make my own input!' ...
+
+## The Prestige
+
+Before we can start making our own inputs, it will be helpful to understand what's going on behind the scenes.
+
+If we fire up this example app, whenever we move the slider the histogram updates. The first time you ran a Shiny app, this probably felt like magic, and in some sense it is... 'Every sufficiently advanced technology is indistinguishable from magic.'
+
+```{r, message = FALSE}
+OSUICode::run_example( 
+  "input-system/dummy-app", 
+   package = "OSUICode" 
+ ) 
+```
+
+
+However, if we open up devtools via inspect and type 'Shiny.unbindAll(document);' then all of the magic drains from the world.
+
+## What happened?
+
+When we typed 'Shiny.unbindAll(document)' we irreparably severed the connection between ours and the platonic realm of Shinyland; sending the Shiny elves running thrusting us back into the Dark Ages.
+
+Well not exactly. But we did remove the binding between our inputs and <a href="https://unleash-shiny.rinterface.com/survival-kit-javascript.html#shiny-js-object" >target="_blank"> Shiny JS Object</a> . This prevents the user from sending instructions to the Shiny elves.  
+
+If we type 'Shiny.bindAll(document)' the elves come back to work and magic happens again. 
+
+## So what are input bindings, more formally?
+
+An input binding allows Shiny to identify each instance of a given input and what you may do with this input. In HTML. inputs have structure:
+
+```{html, eval = FALSE}
+<input id = "id" type = "text" class = "..." value = value>
+```
+
+* id guarantees the input uniqueness and a way for Shiny to recover it in the input$<id> element.
+
+* type like checkbox, button, text …type may also be a good target for the input binding find method, as explained below.
+
+*class may be required to find the element in the DOM. It is more convenient for an input binding to target a class (and all associated elements) rather than an  id, which corresponds to one element by definition. It is also used by CSS to apply styles.
+
+value holds the input value.
+
+## Shiny/srcjs/input_bindings.js
+
+We can take a look at Shiny's input_bindings.js skeleton which defines various methods for the different aspects of binding inputs.
+
+```{javascript, eval = FALSE}
+var InputBinding = exports.InputBinding = function() {};
+
+(function() {
+
+// Returns a jQuery object or element array that contains the
+// descendants of scope that match this binding
+this.find = function(scope) { throw "Not implemented"; };
+
+this.getId = function(el) {
+  return el['data-input-id'] || el.id;
+};
+
+// Gives the input a type in case the server needs to know it
+// to deserialize the JSON correctly
+this.getType = function() { return false; };
+this.getValue = function(el) { throw "Not implemented"; };
+
+// The callback method takes one argument, whose value is boolean. If true,
+// allow deferred (debounce or throttle) sending depending on the value of
+// getRatePolicy. If false, send value immediately.
+this.subscribe = function(el, callback) { };
+this.unsubscribe = function(el) { };
+
+// This is used for receiving messages that tell the input object to do
+// things, such as setting values (including min, max, and others).
+// 'data' should be an object with elements corresponding to value, min,
+// max, etc., as appropriate for the type of input object. It also should
+// trigger a change event.
+this.receiveMessage = function(el, data) { throw "Not implemented"; };
+this.getState = function(el, data) { throw "Not implemented"; };
+
+this.getRatePolicy = function() { return null; };
+
+// Some input objects need initialization before being bound. This is
+// called when the document is ready (for statically-added input objects),
+// and when new input objects are added to the document with
+// htmlOutputBinding.renderValue() (for dynamically-added input objects).
+// This is called before the input is bound.
+this.initialize = function(el) { };
+
+// This is called after unbinding the output.
+this.dispose = function(el) { };
+
+}).call(InputBinding.prototype);
+```
+
+As we can see, the methods are not implemented - to create a functioning input we'd need to implement our methods with javascript.
+
+## Implementing Input Bindings
+
+There is a step by step example of how input bindings are created, we'll run through at three separate checkpoints, where x = 1, 4, and 6 in `updateCustomTextInputExample(x)`
+
+```{r, eval = FALSE}
+customTextInput <- function (
+  inputId, 
+  label, 
+  value = "", 
+  width = NULL, 
+  placeholder = NULL,
+  binding_step
+) {
+  
+  # this external wrapper ensure to control the input width
+  div(
+    class = "form-group shiny-input-container", 
+    style = if (!is.null(width)) {
+      paste0("width: ", validateCssUnit(width), ";")
+    },
+    # input label
+    shinyInputLabel(inputId, label), 
+    
+    # input element + JS dependencies
+    tagList(
+      customTextInputDeps(binding_step),
+      tags$input(
+        id = inputId,
+        type = "text",
+        class = "form-control input-text",
+        value = value,
+        placeholder = placeholder
+      )
+    )
+  )
+}
+```
+
+```{r, eval = FALSE}
+customTextInputDeps <- function(binding_step) {
+  htmlDependency(
+    name = "customTextBindings",
+    version = "1.0.0",
+    src = c(file = system.file(
+      "input-system/input-bindings", 
+      package = "OSUICode"
+    )),
+    script = paste0(
+      "customTextInputBinding_", 
+      binding_step, 
+      ".js"
+    )
+  )
+}
+```
+
+
+## Step 1
+
+In the first iteration we have:
+
+- A jquery funcion, denoted by the $(function...) syntax
+- Creation of a new Shiny input binding (let customText...)
+- A $.extend call which allows us to add methods to our new binding
+- Find method to identify DOM elements binding applies to, in this case .input-text,  providing jQuery objects to allow interaction with Shiny
+- a console.log inside the find method for debugging
+- register our custom binding under 'text' 
+
+
+```{javascript, eval = FALSE}
+$(function() {
+  // Input binding
+  let customTextBinding = new Shiny.InputBinding();
+
+  $.extend(customTextBinding, {
+    find: function(scope) {
+      console.log($(scope).find('.input-text'));
+      return $(scope).find('.input-text');
+    }
+  });
+
+  Shiny.inputBindings.register(customTextBinding, 'text');
+});
+```
+
+Book reminds us to explicitly return, lest we break everything.
+
+## Step 4
+
+We have the same impelementation, minus the console.log inside the find method + some new methods.
+
+- getValue - Given the DOM element for the input, return the value
+- setValue - Allows Shiny to set a new value when called to do so by server
+- receiveMessage - recall from the skeleton implementation above, this method can tell the input object to do things. In this case it sets a new value using the setValue method, iff there is a value then triggers a change.
+- Finally,  subscribe makes a callback when events occur, in his case keyup (stop typing) or new input to our custom binding.
+
+```{javascript, eval = FALSE}
+$(function() {
+  // Input binding
+  let customTextBinding = new Shiny.InputBinding();
+  
+  $.extend(customTextBinding, {
+    find: function(scope) {
+      return $(scope).find('.input-text');
+    },
+    // Given the DOM element for the input, return the value
+    getValue: function(el) {
+      return $(el).val();
+    },
+    setValue: function(el, value) {
+      $(el).val(value);
+    },
+    receiveMessage: function(el, data) {
+      if (data.hasOwnProperty('value')) {
+        this.setValue(el, data.value);
+        $(el).trigger('change');
+      }
+    },
+    subscribe: function(el, callback) {
+      $(el).on('keyup.customTextBinding input.customTextBinding', function(event) {
+        console.log(event);
+        callback();
+      });
+    }
+  });
+  
+  Shiny.inputBindings.register(customTextBinding, 'text');
+});
+```
+
+What's missing from this implementation? 
+Why it might be annoying to use if it remains the same?
+
+## Step 6
+
+Here there are some new additions:
+
+- an additional event listener to the subscribe method, which waits for the change event before making a callback (Is call back still being used to getValue, is that general behaviour?)
+- Implementation of getRatePolicy adding a debounce - as in give the user 250ms to stop typing then update
+- Add unsubscribe method, which stops input from sending new messages - what happens if we don't do this?
+- 'keyup.customTextBinding input.textInputBinding' - is this supposed to change to input.textInputBinding from input.customTextInputBinding (?)
+
+```{javascript, eval = FALSE}
+
+#Step 6
+$(function() {
+  // Input binding
+  let customTextBinding = new Shiny.InputBinding();
+  
+  $.extend(customTextBinding, {
+    find: function(scope) {
+      return $(scope).find('.input-text');
+    },
+    // Given the DOM element for the input, return the value
+    getValue: function(el) {
+      return $(el).val();
+    },
+    setValue: function(el, value) {
+      $(el).val(value);
+    },
+    receiveMessage: function(el, data) {
+      if (data.hasOwnProperty('value')) {
+        this.setValue(el, data.value);
+        $(el).trigger('change');
+      }
+    },
+    subscribe: function(el, callback) {
+      $(el).on('keyup.customTextBinding input.textInputBinding', function(event) {
+        callback(true);
+      });
+      
+      $(el).on('change.customTextBinding', function(event) {
+        callback();
+      });
+    },
+    getRatePolicy: function() {
+      return {
+        policy: 'debounce',
+        delay: 250
+      };
+    },
+    unsubscribe: function(el) {
+      $(el).off('.customTextBinding');
+    }
+  });
+  
+  Shiny.inputBindings.register(customTextBinding, 'text');
+});
+```
+
+Question, is getValue a substitute for initialise?
+
+
+## R Custom functions
+
+```{r}
+updateCustomTextInput <- function(
+  inputId, 
+  value = NULL, 
+  session = getDefaultReactiveDomain()
+) {
+  session$sendInputMessage(inputId, message = value)
+}
+```
+
+## Undescribed methods
+
+Other binding methods
+There are a couple of methods not described above that are contained in the InputBinding class prototype. They were not described before since, most of the time, we don’t need to change them and can rely on the defaults:
+
+getId returns the object id (Figure 12.14). If you don’t provide your own method, the binding falls back to the default one provided in the InputBinding class. This method is called after the find step. Chapter 13 provides more details.
+getType required to handle custom data formats. It is called after getId. An entire section 12.4 is dedicated to this.
+
+## Naming Convention
+
+Best practice is to name it following PACKAGE_NAME.BINDING_NAME, to avoid conflicts. Although the Shiny documentation mentions a Shiny.inputBindings.setPriority method to handle conflicting bindings, if you respect the above convention, this case almost never happens.
+
+{shinytest} internal structure. Under the hood, it has a file, which maps all input elements:
+
+widget_names <- c(
+    "shiny.actionButtonInput"  = "actionButton",
+    "shiny.checkboxInput"      = "checkboxInput",
+    "shiny.checkboxGroupInput" = "checkboxGroupInput",
+
+## Reimplement from scratch
+
+Now we're going to reimplement from scratch, starting with Russ.
+
+Syke!
+
+I've re-posted the full implementation, it might be a nice idea for us to comment *everything* as personally being so new to JS there are definitely bits I'm not at all familiar/comfortable with. 
+
+If not, we can move on.
+```{javascript, eval = FALSE}
+$(function() {
+  //
+    
+    //Define an input binding object, which is a thing that Shiny uses to access & manipulate inputs
+    //Inherits from Shiny.InputBinding() (?) - create the object and then edit
+  let customTextBinding = new Shiny.InputBinding();
+  
+  //Update or define our binding/input`s methods
+  $.extend(customTextBinding, {
+    //Implementing a jquery method, find, to find all of '.input-text' in the DOM
+    find: function(scope) {
+      return $(scope).find('.input-text');
+    },
+    //allow Shiny to access the value associated with the element
+    getValue: function(el) {
+      return $(el).val();
+    },
+    //Allow JS to update the value of the/a specific element
+    //But, doesnt update what R server can see
+    setValue: function(el, value) {
+      $(el).val(value);
+    },
+    //Vessel for messages sent from Shiny to the server frontend (communicate between frontend & server)
+      //Check there is a value because we dont want to be sending null stuff around. Call the setValue method. Trigger a change event
+    receiveMessage: function(el, data) {
+      if (data.hasOwnProperty('value')) {
+        this.setValue(el, data.value);
+        $(el).trigger('change');
+      }
+    },
+    
+    //
+    subscribe: function(el, callback) {
+      $(el).on('keyup.customTextBinding input.textInputBinding', function(event) {
+        callback(true);
+      });
+      
+      $(el).on('change.customTextBinding', function(event) {
+        callback();
+      });
+    },
+    getRatePolicy: function() {
+      return {
+        policy: 'debounce',
+        delay: 250
+      };
+    },
+    unsubscribe: function(el) {
+      $(el).off('.customTextBinding');
+    }
+  });
+  
+  Shiny.inputBindings.register(customTextBinding, 'text');
+});
+```
+
+## Editing a binding 
+
+Ok, we've looked at implementing a binding from scratch, but sometimes we just need to make minor adjustments to an existing Input. The book recommends a five-step process:
+
+1. Wait for the shiny:connected event, so that the Shiny JS object exists.
+2. Unbind all inputs with Shiny.unbindAll().
+3. Access the binding registry, Shiny.inputBindings.
+4. Extend the binding and edit its content with $.extend(... {...})
+5. Apply the new changes with Shiny.bindAll().
+
+```{javascript}
+$(function() {
+  $(document).on('shiny:connected', function(event) {
+    Shiny.unbindAll();
+    $.extend(Shiny
+      .inputBindings
+      .bindingNames['shiny.actionButtonInput']
+      .binding, {
+        // do whathever you want to edit existing methods
+      });
+    Shiny.bindAll();
+  });
+});
+```
+
+## Update a binding from the client
+
+So far we've been looking at how to update inputs server-side but this can be done client-side, lessening the strain on the server.
+
+A Shiny app contains two action buttons; clicking on the first one increases the value of the second by 10. This won’t be possible with the classic approach since a button click only increases its value by 1.
+
+1. We first set an event listener on the first button.
+2. We target the second button and get the input binding with $obj.data('shiny-input-binding').
+3. We recover the current value.
+4. We call the setValue method, adding 10 to the current value.
+5. Importantly, to let Shiny update the value on the R side, we must trigger an event that will be detected in the subscribe method. The action button only has one event listener, but other may be added. Don’t forget that triggering a click event would also increment the button value by 1! In the following, we have to customize the subscribe method to work around:
+
+```{javascript}
+$(function() {
+  // each time we click on #test (a button)
+  $('#button1').on('click', function() {
+    let $obj = $('#button2');
+    let inputBinding = $obj.data('shiny-input-binding');
+    let val = $obj.data('val') || 0;
+    inputBinding.setValue($obj, val + 10);
+    $obj.trigger('event');
+  });
+});
+
+```
+
+Reset button:
+```{javascript}
+$('#reset').on('click', function() {
+  let $obj = $('#button2');
+  let inputBinding = $obj.data('shiny-input-binding');
+  inputBinding.reset($obj);
+  $obj.trigger('change');
+});
+
+```
+
+Add to Shiny's existing input bindings for the actionButtonInput:
+```{javascript}
+$.extend(
+  Shiny
+    .inputBindings
+    .bindingNames['shiny.actionButtonInput']
+    .binding, {
+  reset: function(el) {
+   $(el).data('val', 0);
+  },
+  subscribe: function(el, callback) {
+    $(el).on('click.actionButtonInputBinding', function(e) {
+      let $el = $(this);
+      let val = $el.data('val') || 0;
+      $el.data('val', val + 1);
+
+      callback();
+    });
+            
+    // this does not trigger any click and wont change 
+    // the button value            
+    $(el).on('change.actionButtonInputBinding', function(e) {
+      callback();
+    });
+  }
+});
+```
+
+
+  
 ## Meeting Videos
 
 ### Cohort 1
